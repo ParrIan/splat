@@ -1,0 +1,25 @@
+# trained artifacts / data
+*.ply
+*.pt
+*.zip
+*.jpg
+*.jpeg
+*.png
+*.md
+writeup_content/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# xcode
+*.xcuserstate
+xcuserdata/
+.DS_Store
+
+# jupyter
+.ipynb_checkpoints/
+*.ipynb
