@@ -435,9 +435,18 @@ def main():
 
     dino_model, clip_model, clip_prep = load_models(device)
 
-    raw_dino, valid, best_cam, best_px = aggregate_dino_features(
-        xyz, cameras_bin, images_bin, image_dir, dino_model, device
-    )
+    agg_cache = WORK_DIR / 'aggregation.npz'
+    if agg_cache.exists():
+        print(f'loading aggregation cache: {agg_cache}')
+        c = np.load(agg_cache)
+        raw_dino, valid, best_cam, best_px = c['raw_dino'], c['valid'], c['best_cam'], c['best_px']
+        print(f'loaded — valid gaussians: {valid.sum():,}')
+    else:
+        raw_dino, valid, best_cam, best_px = aggregate_dino_features(
+            xyz, cameras_bin, images_bin, image_dir, dino_model, device
+        )
+        np.savez(agg_cache, raw_dino=raw_dino, valid=valid, best_cam=best_cam, best_px=best_px)
+        print(f'aggregation cached: {agg_cache}')
 
     pair_idx, clip_targets = build_gaussian_clip_targets(
         xyz, valid, best_cam, best_px, images_bin, cameras_bin,
