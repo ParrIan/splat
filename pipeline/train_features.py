@@ -235,7 +235,7 @@ def aggregate_dino_features(xyz, cameras_bin, images_bin, image_dir, dino_model,
 @torch.no_grad()
 def build_gaussian_clip_targets(xyz, valid, best_cam, best_px, images_bin, cameras_bin,
                                  image_dir, clip_model, clip_prep, device,
-                                 crop_size=64, batch_size=256):
+                                 crop_size=64, batch_size=512, max_per_cam=100):
     """
     For each valid Gaussian, crop a window around its best-camera projection
     and get the CLIP image embedding of that crop.
@@ -251,9 +251,24 @@ def build_gaussian_clip_targets(xyz, valid, best_cam, best_px, images_bin, camer
     pair_cam   = best_cam[pair_idx]
     pair_px    = best_px[pair_idx]   # (M, 2)
 
-    print(f'building CLIP targets for {len(pair_idx):,} gaussians...')
+    # subsample to max_per_cam per camera — linear layer doesn't need all 388k pairs
+    cam_to_pairs = {}
+    for i, ci in enumerate(pair_cam):
+        cam_to_pairs.setdefault(ci, []).append(i)
 
-    # preload images grouped by camera to avoid re-opening
+    subsampled = []
+    for ci, indices in cam_to_pairs.items():
+        if len(indices) > max_per_cam:
+            indices = list(np.random.choice(indices, max_per_cam, replace=False))
+        subsampled.extend(indices)
+
+    subsampled = np.array(subsampled)
+    pair_idx   = pair_idx[subsampled]
+    pair_cam   = pair_cam[subsampled]
+    pair_px    = pair_px[subsampled]
+
+    print(f'building CLIP targets for {len(pair_idx):,} gaussians ({max_per_cam}/cam)...')
+
     cam_to_pairs = {}
     for i, ci in enumerate(pair_cam):
         cam_to_pairs.setdefault(ci, []).append(i)
