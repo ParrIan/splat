@@ -204,7 +204,7 @@ def aggregate_dino_features(xyz, cameras_bin, images_bin, image_dir, dino_model,
             continue
 
         dino_feat = extract_dino_features(dino_model, img_path, H, W, device)
-        feats = dino_feat[vis_py, vis_px]    # (M, 768)
+        feats = dino_feat[vis_py.cpu(), vis_px.cpu()]    # (M, 768)
         w = 1.0 / vis_d.clamp(min=0.01)
 
         dino_sum.index_add_(0, global_idx, feats.to(device) * w.unsqueeze(1))
