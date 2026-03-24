@@ -166,11 +166,13 @@ def aggregate_dino_features(xyz, cameras_bin, images_bin, image_dir, dino_model,
         best_px:     (N, 2) int — [px, py] in best camera
     """
     N = len(xyz)
-    dino_sum   = np.zeros((N, DINO_DIM), dtype=np.float32)
-    weight_sum = np.zeros(N, dtype=np.float32)
-    best_depth = np.full(N, np.inf, dtype=np.float32)
-    best_cam   = np.full(N, -1, dtype=np.int32)
-    best_px    = np.zeros((N, 2), dtype=np.int32)
+    xyz_t = torch.from_numpy(xyz).to(device)  # (N, 3)
+
+    dino_sum   = torch.zeros(N, DINO_DIM, device=device)
+    weight_sum = torch.zeros(N, device=device)
+    best_depth = torch.full((N,), float('inf'), device=device)
+    best_cam   = torch.full((N,), -1, dtype=torch.int32, device=device)
+    best_px    = torch.zeros(N, 2, dtype=torch.int32, device=device)
 
     for cam_idx, img_entry in enumerate(tqdm(images_bin, desc='aggregating DINOv2')):
         cam = cameras_bin[img_entry['camera_id']]
@@ -180,46 +182,47 @@ def aggregate_dino_features(xyz, cameras_bin, images_bin, image_dir, dino_model,
             print(f'  missing: {img_path}')
             continue
 
-        R = qvec_to_rotmat(img_entry['qvec'])
-        t = img_entry['tvec']
+        R  = torch.from_numpy(qvec_to_rotmat(img_entry['qvec'])).float().to(device)
+        t  = torch.from_numpy(img_entry['tvec']).float().to(device)
         fx, fy, cx, cy = get_intrinsics(cam)
 
-        pts_cam = (R @ xyz.T).T + t       # (N, 3)
+        pts_cam = (xyz_t @ R.T) + t          # (N, 3)
         depth   = pts_cam[:, 2]
         valid_d = depth > 0.01
 
-        px_f = (fx * pts_cam[valid_d, 0] / pts_cam[valid_d, 2]) + cx
-        py_f = (fy * pts_cam[valid_d, 1] / pts_cam[valid_d, 2]) + cy
-        px   = px_f.astype(np.int32)
-        py   = py_f.astype(np.int32)
+        pts_v = pts_cam[valid_d]
+        px = (fx * pts_v[:, 0] / pts_v[:, 2] + cx).long()
+        py = (fy * pts_v[:, 1] / pts_v[:, 2] + cy).long()
 
-        in_bounds = (px >= 0) & (px < W) & (py >= 0) & (py < H)
-        global_idx = np.where(valid_d)[0][in_bounds]
-        vis_px  = px[in_bounds]
-        vis_py  = py[in_bounds]
-        vis_d   = depth[valid_d][in_bounds]
+        in_bounds  = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+        global_idx = valid_d.nonzero(as_tuple=True)[0][in_bounds]
+        vis_px     = px[in_bounds]
+        vis_py     = py[in_bounds]
+        vis_d      = depth[valid_d][in_bounds]
 
-        if len(global_idx) == 0:
+        if global_idx.numel() == 0:
             continue
 
         dino_feat = extract_dino_features(dino_model, img_path, H, W, device)
-        feats = dino_feat[vis_py, vis_px].numpy()   # (M, 768)
-        w = 1.0 / vis_d.clip(0.01)
+        feats = dino_feat[vis_py, vis_px]    # (M, 768)
+        w = 1.0 / vis_d.clamp(min=0.01)
 
-        np.add.at(dino_sum,   global_idx, feats * w[:, None])
-        np.add.at(weight_sum, global_idx, w)
+        dino_sum.index_add_(0, global_idx, feats.to(device) * w.unsqueeze(1))
+        weight_sum.index_add_(0, global_idx, w)
 
         improved = vis_d < best_depth[global_idx]
         upd_idx  = global_idx[improved]
         best_depth[upd_idx] = vis_d[improved]
         best_cam[upd_idx]   = cam_idx
-        best_px[upd_idx]    = np.stack([vis_px[improved], vis_py[improved]], axis=1)
+        best_px[upd_idx]    = torch.stack([vis_px[improved], vis_py[improved]], dim=1)
 
     valid    = weight_sum > 0
-    raw_dino = np.zeros((N, DINO_DIM), dtype=np.float32)
-    raw_dino[valid] = dino_sum[valid] / weight_sum[valid, None]
-    norms = np.linalg.norm(raw_dino[valid], axis=1, keepdims=True).clip(1e-6)
-    raw_dino[valid] /= norms
+    raw_dino = torch.zeros(N, DINO_DIM, device=device)
+    raw_dino[valid] = dino_sum[valid] / weight_sum[valid].unsqueeze(1)
+    raw_dino = torch.nn.functional.normalize(raw_dino, dim=-1).cpu().numpy()
+    valid    = valid.cpu().numpy()
+    best_cam = best_cam.cpu().numpy()
+    best_px  = best_px.cpu().numpy()
 
     print(f'aggregated for {valid.sum():,} / {N:,} gaussians')
     return raw_dino, valid, best_cam, best_px
