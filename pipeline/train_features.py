@@ -214,7 +214,7 @@ def aggregate_dino_features(xyz, cameras_bin, images_bin, image_dir, dino_model,
         upd_idx  = global_idx[improved]
         best_depth[upd_idx] = vis_d[improved]
         best_cam[upd_idx]   = cam_idx
-        best_px[upd_idx]    = torch.stack([vis_px[improved], vis_py[improved]], dim=1)
+        best_px[upd_idx]    = torch.stack([vis_px[improved], vis_py[improved]], dim=1).int()
 
     valid    = weight_sum > 0
     raw_dino = torch.zeros(N, DINO_DIM, device=device)
