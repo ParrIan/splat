@@ -1,0 +1,4 @@
+{
+  "objects":    ["book", "laptop", "monitor", "cup"],
+  "structures": ["desk", "wall", "floor", "shelf"]
+}

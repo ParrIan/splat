@@ -1,0 +1,40 @@
+{
+  "tests": [
+    {
+      "query": "cup",
+      "expected_label": "cup",
+      "expected_centroid": null,
+      "centroid_threshold": null
+    },
+    {
+      "query": "laptop",
+      "expected_label": "laptop",
+      "expected_centroid": null,
+      "centroid_threshold": null
+    },
+    {
+      "query": "monitor",
+      "expected_label": "monitor",
+      "expected_centroid": null,
+      "centroid_threshold": null
+    },
+    {
+      "query": "book",
+      "expected_label": "book",
+      "expected_centroid": null,
+      "centroid_threshold": null
+    },
+    {
+      "query": "cup on the desk",
+      "expected_label": "cup",
+      "expected_centroid": null,
+      "centroid_threshold": null
+    },
+    {
+      "query": "laptop on the desk",
+      "expected_label": "laptop",
+      "expected_centroid": null,
+      "centroid_threshold": null
+    }
+  ]
+}
