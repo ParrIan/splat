@@ -56,15 +56,18 @@ class SessionExporter: ObservableObject {
             let m = frame.intrinsics
             let t = frame.transform
 
+            // ARKit intrinsics are in full-resolution pixel coords.
+            // Images are saved at half resolution (960x720), so scale by 0.5.
+            let scale: Float = 0.5
             let record = FrameRecord(
                 index: i,
                 timestamp: frame.timestamp,
                 filename: "images/\(filename)",
                 intrinsics: IntrinsicsRecord(
-                    fx: m[0][0],
-                    fy: m[1][1],
-                    cx: m[2][0],
-                    cy: m[2][1]
+                    fx: m[0][0] * scale,
+                    fy: m[1][1] * scale,
+                    cx: m[2][0] * scale,
+                    cy: m[2][1] * scale
                 ),
                 transform: TransformRecord(values: flattenRowMajor(t))
             )

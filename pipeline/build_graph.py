@@ -48,6 +48,10 @@ from pycocotools import mask as mask_utils
 # minimum fraction of votes for a Gaussian to be assigned (not noise)
 MIN_VOTE_FRACTION = 0.1
 
+# CLIP multi-view embedding
+MAX_EMBEDDING_FRAMES = 10    # cap on frames used per object embedding
+MIN_CROP_AREA_FRAC   = 0.01  # drop crops below 1% of image area (noisy, occluded)
+
 # CLIP model
 CLIP_MODEL      = 'ViT-B-16'
 CLIP_PRETRAINED = 'laion2b_s34b_b88k'
@@ -275,50 +279,84 @@ def load_clip(device):
     return model, preprocess, tokenizer
 
 
-def embed_object_crop(obj_id, obj, image_dir, clip_model, clip_preprocess, device):
+def embed_object_crops(obj, image_dir, clip_model, clip_preprocess, device):
     """
-    Pick best frame (largest mask area), crop + mask it, embed with CLIP.
-    Returns (embedding np float32 [512], best_frame_name).
+    Embed an object from multiple views and average the embeddings.
+
+    Selects up to MAX_EMBEDDING_FRAMES frames by descending mask area,
+    filtering out crops below MIN_CROP_AREA_FRAC of image area (too small
+    to be informative — occluded or at frame edge).
+
+    Averaging over multiple clear views handles pose-dependent appearance
+    (open vs closed laptop, mug visible from one angle only) far better
+    than a single best-frame crop.
+
+    Returns:
+        embedding:        list[float] len 512, mean-pooled and renormalized
+        best_frame:       str, frame name with largest mask area (for viewer)
+        embedding_frames: list[str], all frames that contributed to embedding
     """
-    best_frame = max(obj['frames'].items(), key=lambda kv: kv[1]['area_px'])
-    frame_name, frame_data = best_frame
+    sorted_frames = sorted(
+        obj['frames'].items(), key=lambda kv: kv[1]['area_px'], reverse=True
+    )
+    best_frame = sorted_frames[0][0] if sorted_frames else None
 
-    img_path = image_dir / frame_name
-    if not img_path.exists():
-        return None, frame_name
+    embeddings       = []
+    embedding_frames = []
 
-    img  = np.array(Image.open(img_path).convert('RGB'))
-    rle  = frame_data['mask_rle']
-    mask = decode_rle(rle)
-    H, W = img.shape[:2]
-    if mask.shape != (H, W):
-        return None, frame_name
+    for frame_name, frame_data in sorted_frames:
+        if len(embeddings) >= MAX_EMBEDDING_FRAMES:
+            break
 
-    # zero out background — embedding reflects object, not scene context
-    masked = img.copy()
-    masked[~mask] = 0
+        img_path = image_dir / frame_name
+        if not img_path.exists():
+            continue
 
-    # tight crop to mask bbox
-    x0, y0, x1, y1 = frame_data['bbox_px']
-    # add small padding
-    pad  = 8
-    x0   = max(0, x0 - pad)
-    y0   = max(0, y0 - pad)
-    x1   = min(W, x1 + pad)
-    y1   = min(H, y1 + pad)
-    crop = masked[y0:y1, x0:x1]
+        img  = np.array(Image.open(img_path).convert('RGB'))
+        H, W = img.shape[:2]
 
-    if crop.size == 0:
-        return None, frame_name
+        # filter crops below area threshold
+        image_area = H * W
+        if frame_data['area_px'] < image_area * MIN_CROP_AREA_FRAC:
+            continue
 
-    crop_pil = Image.fromarray(crop)
-    tensor   = clip_preprocess(crop_pil).unsqueeze(0).to(device)
+        rle  = frame_data['mask_rle']
+        mask = decode_rle(rle)
+        if mask.shape != (H, W):
+            continue
 
-    with torch.no_grad():
-        emb = clip_model.encode_image(tensor)
-        emb = F.normalize(emb, dim=-1)
+        # zero out background — embedding reflects object, not scene context
+        masked = img.copy()
+        masked[~mask] = 0
 
-    return emb.squeeze(0).cpu().numpy().tolist(), frame_name
+        # tight crop with small padding
+        x0, y0, x1, y1 = frame_data['bbox_px']
+        pad = 8
+        x0  = max(0, x0 - pad)
+        y0  = max(0, y0 - pad)
+        x1  = min(W, x1 + pad)
+        y1  = min(H, y1 + pad)
+        crop = masked[y0:y1, x0:x1]
+
+        if crop.size == 0:
+            continue
+
+        tensor = clip_preprocess(Image.fromarray(crop)).unsqueeze(0).to(device)
+        with torch.no_grad():
+            emb = clip_model.encode_image(tensor)
+            emb = F.normalize(emb, dim=-1)
+
+        embeddings.append(emb.squeeze(0))
+        embedding_frames.append(frame_name)
+
+    if not embeddings:
+        return None, best_frame, []
+
+    # mean pool and renormalize
+    stacked = torch.stack(embeddings, dim=0)
+    mean_emb = F.normalize(stacked.mean(dim=0), dim=-1)
+
+    return mean_emb.cpu().numpy().tolist(), best_frame, embedding_frames
 
 
 # ---------------------------------------------------------------------------
@@ -444,24 +482,26 @@ def main():
 
         print(f'  {obj_id} ({obj["label"]}): {len(gauss_ids):,} Gaussians')
 
-        emb, best_frame = embed_object_crop(
-            obj_id, obj, image_dir, clip_model, clip_preprocess, args.device
+        emb, best_frame, embedding_frames = embed_object_crops(
+            obj, image_dir, clip_model, clip_preprocess, args.device
         )
         if emb is None:
             print(f'    WARN: could not compute CLIP embedding')
+        else:
+            print(f'    embedding from {len(embedding_frames)} frames')
 
-        # best frame area for confidence proxy
         best_area = max(fd['area_px'] for fd in obj['frames'].values())
 
         nodes[obj_id] = {
-            'label':          obj['label'],
-            'type':           obj['type'],
-            'clip_embedding': emb,
-            'gaussian_ids':   gauss_ids,
-            'bbox':           bbox,
-            'best_frame':     best_frame,
-            'mask_area_px':   best_area,
-            'confidence':     None,  # SAM3 does not expose instance scores in current API
+            'label':            obj['label'],
+            'type':             obj['type'],
+            'clip_embedding':   emb,
+            'gaussian_ids':     gauss_ids,
+            'bbox':             bbox,
+            'best_frame':       best_frame,
+            'embedding_frames': embedding_frames,
+            'mask_area_px':     best_area,
+            'confidence':       None,
         }
 
     # background node — all unassigned Gaussians

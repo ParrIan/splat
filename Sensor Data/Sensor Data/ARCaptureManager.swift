@@ -128,8 +128,8 @@ class ARCaptureManager: NSObject, ObservableObject {
 
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 1920,
-            AVVideoHeightKey: 1440
+            AVVideoWidthKey: 960,
+            AVVideoHeightKey: 720
         ]
 
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
@@ -174,7 +174,11 @@ class ARCaptureManager: NSObject, ObservableObject {
     private func encodeJPEG(_ pixelBuffer: CVPixelBuffer, to url: URL) {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
-        guard let data = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7) else { return }
+        let original = UIImage(cgImage: cgImage)
+        let target = CGSize(width: 960, height: 720)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        let resized = renderer.image { _ in original.draw(in: CGRect(origin: .zero, size: target)) }
+        guard let data = resized.jpegData(compressionQuality: 0.7) else { return }
         try? data.write(to: url)
     }
 }
