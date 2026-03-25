@@ -1,14 +1,18 @@
-# trained artifacts / data
+# scene data / trained artifacts
+scenes/
 *.ply
 *.pt
 *.zip
 *.jpg
 *.jpeg
 *.png
-*.md
-writeup_content/
-prev_runs/
 *.pdf
+capture/
+docs/
+
+# generated pipeline outputs
+pipeline/segments.json
+pipeline/scene_graph.json
 
 # python
 __pycache__/

@@ -162,7 +162,7 @@ def visualize(segments, image_dir, n_frames):
                for oid in obj_ids]
     fig.legend(handles=patches, loc='lower center', ncol=min(6, len(obj_ids)), fontsize=7)
     plt.tight_layout()
-    out = Path('pipeline/validate_segmentation.png')
+    out = Path(args.segments).parent / 'validate_segmentation.png'
     plt.savefig(out, dpi=120, bbox_inches='tight')
     print(f'\nvisualization saved: {out}')
     plt.show()

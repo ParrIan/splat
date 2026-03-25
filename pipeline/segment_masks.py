@@ -271,6 +271,7 @@ def main():
     parser.add_argument('--gdino_cfg',  default='/content/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py')
     parser.add_argument('--sam2_ckpt',  default='/content/weights/sam2.1_hiera_large.pt')
     parser.add_argument('--device',     default='cuda')
+    parser.add_argument('--max_frames', type=int, default=None)
     args = parser.parse_args()
 
     scene_dir = Path(args.scene)
@@ -286,6 +287,8 @@ def main():
     print()
 
     frame_names = sorted_frame_names(image_dir)
+    if args.max_frames:
+        frame_names = frame_names[:args.max_frames]
     print(f'{len(frame_names)} frames  ({frame_names[0]} ... {frame_names[-1]})')
     print()
 

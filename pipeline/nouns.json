@@ -1,4 +1,4 @@
 {
-  "objects":    ["book", "laptop", "monitor", "cup"],
-  "structures": ["desk", "wall", "floor", "shelf"]
+  "objects":    ["laptop", "monitor", "keyboard", "speaker", "phone"],
+  "structures": ["desk", "wall", "shelf"]
 }

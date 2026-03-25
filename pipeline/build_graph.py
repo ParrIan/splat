@@ -528,8 +528,15 @@ def main():
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    class _Enc(json.JSONEncoder):
+        def default(self, o):
+            if isinstance(o, np.integer): return int(o)
+            if isinstance(o, np.floating): return float(o)
+            if isinstance(o, np.ndarray): return o.tolist()
+            return super().default(o)
+
     with open(out_path, 'w') as f:
-        json.dump(graph, f)
+        json.dump(graph, f, cls=_Enc)
 
     print(f'saved: {out_path}')
     print(f'nodes: {len(nodes)}  edges: {len(edges)}')
